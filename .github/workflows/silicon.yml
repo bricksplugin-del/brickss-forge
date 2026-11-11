@@ -1,0 +1,47 @@
+name: Test Apple Silicon
+# À lancer à la main : onglet Actions > "Test Apple Silicon" > Run workflow.
+# Il télécharge les 3 installeurs de la release "v1.0.0" de CE dépôt, les installe pour de vrai sur un Mac Apple Silicon,
+# puis vérifie les 80 plug-ins : architecture, signature, validation Apple (auval) et test de chargement/son (pluginval).
+on: workflow_dispatch
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]   # Apple Silicon (M1) ; ajoutez macos-13 pour tester aussi un Mac Intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: La machine
+        run: uname -m; sw_vers
+      - name: Télécharger les installeurs
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release download v1.0.0 --repo "${{ github.repository }}" --pattern '*.pkg' --dir pk && ls -la pk
+      - name: Vérifier les installeurs (signature Apple)
+        run: for p in pk/*.pkg; do echo "== $p"; pkgutil --check-signature "$p" | head -4; spctl --assess --type install -vv "$p" 2>&1 | head -3; done
+      - name: Installer
+        run: for p in pk/*.pkg; do sudo installer -pkg "$p" -target / ; done
+      - name: Architecture et signature des 160 paquets
+        run: |
+          fail=0; n=0
+          for b in /Library/Audio/Plug-Ins/Components/*.component /Library/Audio/Plug-Ins/VST3/*.vst3; do
+            n=$((n+1)); a=$(lipo -archs "$b"/Contents/MacOS/* 2>/dev/null | tr ' ' '\n' | sort | tr '\n' ' ')
+            [ "$a" = "arm64 x86_64 " ] || { echo "ARCH KO $b ($a)"; fail=1; }
+            codesign --verify --strict "$b" 2>/dev/null || { echo "SIGNATURE KO $b"; fail=1; }
+          done
+          echo "$n paquets verifiés"; exit $fail
+      - name: Validation Apple (auval) des 80 Audio Unit
+        run: |
+          sleep 5; fail=0; tail -n +2 plugins.csv | while IFS=, read -r tag type code nom; do
+            if auval -v "$type" "$code" Brks > /tmp/auval.txt 2>&1 && grep -q "AU VALIDATION SUCCEEDED" /tmp/auval.txt; then echo "OK   $tag"; else echo "KO   $tag"; tail -15 /tmp/auval.txt; echo "$tag" >> /tmp/auval_ko.txt; fi
+          done
+          [ ! -s /tmp/auval_ko.txt ] || { echo "--- ECHECS :"; cat /tmp/auval_ko.txt; exit 1; }
+      - name: Test de chargement et de traitement du son (pluginval) sur les 80 VST3
+        run: |
+          curl -sL https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip -o pv.zip && unzip -q pv.zip
+          PV=./pluginval.app/Contents/MacOS/pluginval; fail=0
+          for b in /Library/Audio/Plug-Ins/VST3/*.vst3; do
+            if "$PV" --strictness-level 5 --skip-gui-tests --timeout-ms 60000 --validate-in-process "$b" > /tmp/pv.txt 2>&1; then echo "OK   $(basename "$b")"; else echo "KO   $(basename "$b")"; tail -20 /tmp/pv.txt; echo "$b" >> /tmp/pv_ko.txt; fi
+          done
+          [ ! -s /tmp/pv_ko.txt ] || { echo "--- ECHECS :"; cat /tmp/pv_ko.txt; exit 1; }
