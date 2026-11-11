@@ -1,0 +1,22 @@
+name: Diag
+on: workflow_dispatch
+jobs:
+  d:
+    runs-on: macos-15
+    steps:
+      - name: Installer
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download v1.0.0 --repo "${{ github.repository }}" --pattern '*Instruments.pkg' --dir pk
+          sudo installer -pkg pk/BrickS-Forge-Instruments.pkg -target / -verbose 2>&1 | tail -20
+          echo "code retour installer : $?"
+      - name: Diagnostic
+        run: |
+          uname -m; sw_vers
+          B=/Library/Audio/Plug-Ins/VST3/TETRA.vst3
+          ls -laO "$B" || true; ls -laO "$B/Contents" || true; ls -laO "$B/Contents/MacOS" || true
+          file "$B"/Contents/MacOS/* || true
+          echo "--- lipo"; lipo -archs "$B"/Contents/MacOS/* || true
+          echo "--- codesign"; codesign --verify --strict --verbose=4 "$B" || true
+          echo "--- liste"; ls /Library/Audio/Plug-Ins/VST3 | head -20
+          echo "--- stat"; stat -f "%Sp %Su %z" "$B"/Contents/MacOS/* || true
