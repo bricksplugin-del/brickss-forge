@@ -1,0 +1,41 @@
+name: Test gratuits Apple Silicon
+# À lancer à la main : Actions > "Test gratuits Apple Silicon" > Run workflow.
+# Télécharge les 11 archives gratuites de la release "gratuits-v1", installe leurs installeurs sur un Mac Apple Silicon, puis vérifie :
+# architecture + signature de chaque plug-in et application, validation Apple (auval) de chaque Audio Unit, chargement et son de chaque VST3 (pluginval).
+on: workflow_dispatch
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: La machine
+        run: uname -m; sw_vers
+      - name: Télécharger et installer
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download gratuits-v1 --repo "${{ github.repository }}" --pattern '*.zip' --dir z && ls -la z
+          mkdir -p x; for z in z/*.zip; do unzip -q "$z" -d x; done
+          for p in x/*/*.pkg; do echo "== $p"; spctl --assess --type install -vv "$p" 2>&1 | head -2; sudo installer -pkg "$p" -target / | tail -1; done
+      - name: Architecture et signature
+        run: |
+          fail=0; n=0
+          for b in /Library/Audio/Plug-Ins/Components/*.component /Library/Audio/Plug-Ins/VST3/*.vst3 /Applications/BrickS*.app; do
+            [ -e "$b" ] || continue; n=$((n+1)); exe=$(ls "$b"/Contents/MacOS/* | head -1); a=$(lipo -archs "$exe" 2>/dev/null | tr ' ' '\n' | sort | tr '\n' ' ')
+            [ "$a" = "arm64 x86_64 " ] || { echo "ARCH KO $b ($a)"; fail=1; }
+            codesign --verify --strict "$b" 2>/dev/null && echo "OK   $(basename "$b")" || { echo "SIGNATURE KO $b"; fail=1; }
+          done
+          echo "$n éléments vérifiés"; exit $fail
+      - name: Validation Apple (auval) de chaque Audio Unit
+        run: |
+          sleep 5; fail=0
+          for c in /Library/Audio/Plug-Ins/Components/*.component; do
+            pl="$c/Contents/Info.plist"; t=$(/usr/libexec/PlistBuddy -c "Print :AudioComponents:0:type" "$pl"); s=$(/usr/libexec/PlistBuddy -c "Print :AudioComponents:0:subtype" "$pl"); m=$(/usr/libexec/PlistBuddy -c "Print :AudioComponents:0:manufacturer" "$pl")
+            if auval -v "$t" "$s" "$m" > /tmp/auval.txt 2>&1 && grep -q "AU VALIDATION SUCCEEDED" /tmp/auval.txt; then echo "AU OK   $(basename "$c")"; else echo "AU KO   $(basename "$c")"; tail -15 /tmp/auval.txt; fail=1; fi
+          done; exit $fail
+      - name: Chargement et son (pluginval) de chaque VST3
+        run: |
+          curl -sL https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip -o pv.zip && unzip -q pv.zip
+          PV=./pluginval.app/Contents/MacOS/pluginval; fail=0
+          for b in /Library/Audio/Plug-Ins/VST3/*.vst3; do
+            if "$PV" --strictness-level 5 --skip-gui-tests --timeout-ms 60000 --validate-in-process "$b" > /tmp/pv.txt 2>&1; then echo "VST3 OK   $(basename "$b")"; else echo "VST3 KO   $(basename "$b")"; tail -12 /tmp/pv.txt; fail=1; fi
+          done; exit $fail
