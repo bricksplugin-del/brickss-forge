@@ -22,7 +22,7 @@ jobs:
           for b in /Library/Audio/Plug-Ins/Components/*.component /Library/Audio/Plug-Ins/VST3/*.vst3 /Applications/BrickS*.app; do
             [ -e "$b" ] || continue; n=$((n+1)); exe=$(ls "$b"/Contents/MacOS/* | head -1); a=$(lipo -archs "$exe" 2>/dev/null | tr ' ' '\n' | sort | tr '\n' ' ')
             [ "$a" = "arm64 x86_64 " ] || { echo "ARCH KO $b ($a)"; fail=1; }
-            codesign --verify --strict "$b" 2>/dev/null && echo "OK   $(basename "$b")" || { echo "SIGNATURE KO $b"; fail=1; }
+            codesign --verify --strict --verbose=2 "$b" > /tmp/cs.txt 2>&1 && echo "OK   $(basename "$b")" || { echo "SIGNATURE KO $b"; cat /tmp/cs.txt | head -8; spctl --assess --type execute -vv "$b" 2>&1 | head -3; ls -la "$b/Contents" | head -8; fail=1; }
           done
           echo "$n éléments vérifiés"; exit $fail
       - name: Validation Apple (auval) de chaque Audio Unit
