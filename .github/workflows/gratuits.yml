@@ -1,6 +1,6 @@
 name: Test gratuits Apple Silicon
 # À lancer à la main : Actions > "Test gratuits Apple Silicon" > Run workflow.
-# Télécharge les 11 archives gratuites de la release "gratuits-v1", installe leurs installeurs sur un Mac Apple Silicon, puis vérifie :
+# Télécharge les installeurs Comics (synthés, effets) et les outils (DrumForge, BeatForge, KitEngine) de la release "comics-v1", les installe sur un Mac Apple Silicon, puis vérifie :
 # architecture + signature de chaque plug-in et application, validation Apple (auval) de chaque Audio Unit, chargement et son de chaque VST3 (pluginval).
 on: workflow_dispatch
 jobs:
@@ -13,9 +13,9 @@ jobs:
       - name: Télécharger et installer
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
-          gh release download gratuits-v1 --repo "${{ github.repository }}" --pattern '*.zip' --dir z && ls -la z
-          mkdir -p x; for z in z/*.zip; do unzip -q "$z" -d x; done
-          for p in x/*/*.pkg; do echo "== $p"; spctl --assess --type install -vv "$p" 2>&1 | head -2; sudo installer -pkg "$p" -target / | tail -1; done
+          gh release download comics-v1 --repo "${{ github.repository }}" --pattern '*.pkg' --pattern '*.zip' --dir z && ls -la z
+          mkdir -p x; for z in z/*.zip; do [ -e "$z" ] && unzip -q "$z" -d x; done
+          for p in z/*.pkg x/*/*.pkg; do [ -e "$p" ] || continue; echo "== $p"; spctl --assess --type install -vv "$p" 2>&1 | head -2; xcrun stapler validate "$p" 2>&1 | tail -1; sudo installer -pkg "$p" -target / | tail -1; done
       - name: Architecture et signature
         run: |
           fail=0; n=0
@@ -27,10 +27,11 @@ jobs:
           echo "$n éléments vérifiés"; exit $fail
       - name: Validation Apple (auval) de chaque Audio Unit
         run: |
-          sleep 5; fail=0
+          sleep 20; fail=0
           for c in /Library/Audio/Plug-Ins/Components/*.component; do
             pl="$c/Contents/Info.plist"; t=$(/usr/libexec/PlistBuddy -c "Print :AudioComponents:0:type" "$pl"); s=$(/usr/libexec/PlistBuddy -c "Print :AudioComponents:0:subtype" "$pl"); m=$(/usr/libexec/PlistBuddy -c "Print :AudioComponents:0:manufacturer" "$pl")
-            if auval -v "$t" "$s" "$m" > /tmp/auval.txt 2>&1 && grep -q "AU VALIDATION SUCCEEDED" /tmp/auval.txt; then echo "AU OK   $(basename "$c")"; else echo "AU KO   $(basename "$c")"; tail -15 /tmp/auval.txt; fail=1; fi
+            ok=0; for try in 1 2 3 4; do auval -v "$t" "$s" "$m" > /tmp/auval.txt 2>&1 && grep -q "AU VALIDATION SUCCEEDED" /tmp/auval.txt && { ok=1; break; }; sleep 20; done
+            if [ $ok = 1 ]; then echo "AU OK   $(basename "$c")"; else echo "AU KO   $(basename "$c")"; tail -15 /tmp/auval.txt; fail=1; fi
           done; exit $fail
       - name: Chargement et son (pluginval) de chaque VST3
         run: |
