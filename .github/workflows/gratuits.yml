@@ -1,6 +1,6 @@
 name: Test gratuits Apple Silicon
 # À lancer à la main : Actions > "Test gratuits Apple Silicon" > Run workflow.
-# Télécharge les installeurs Comics (synthés, effets) et les outils (DrumForge, BeatForge, KitEngine) de la release "comics-v1", les installe sur un Mac Apple Silicon, puis vérifie :
+# Télécharge les installeur Comics unique et les outils (DrumForge, BeatForge, KitEngine) de la release "comics-v1", les installe sur un Mac Apple Silicon, puis vérifie :
 # architecture + signature de chaque plug-in et application, validation Apple (auval) de chaque Audio Unit, chargement et son de chaque VST3 (pluginval).
 on: workflow_dispatch
 jobs:
@@ -13,7 +13,7 @@ jobs:
       - name: Télécharger et installer
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
-          gh release download comics-v1 --repo "${{ github.repository }}" --pattern '*.pkg' --pattern '*.zip' --dir z && ls -la z
+          gh release download comics-v1 --repo "${{ github.repository }}" --pattern 'BrickS-Comics.pkg' --pattern '*.zip' --dir z && ls -la z
           mkdir -p x; for z in z/*.zip; do [ -e "$z" ] && unzip -q "$z" -d x; done
           for p in z/*.pkg x/*/*.pkg; do [ -e "$p" ] || continue; echo "== $p"; spctl --assess --type install -vv "$p" 2>&1 | head -2; xcrun stapler validate "$p" 2>&1 | tail -1; sudo installer -pkg "$p" -target / | tail -1; done
       - name: Architecture et signature
