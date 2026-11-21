@@ -8,7 +8,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-15]   # Apple Silicon (M1) ; ajoutez macos-13 pour tester aussi un Mac Intel
+        os: [macos-15]   # Apple Silicon (M1) ; macos-14 retire : sa file démarre puis est annulée tout de suite
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     steps:
